@@ -1,212 +1,213 @@
-(* Js_of_ocaml example
- * http://www.ocsigen.org/js_of_ocaml/
- * Copyright (C) 2010 Jérôme Vouillon
- * Laboratoire PPS - CNRS Université Paris Diderot
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU Lesser General Public License for more details.
- *
- * You should have received a copy of the GNU Lesser General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
- *)
 open Js_of_ocaml
-open Js_of_ocaml_lwt
-
-let n = 12
-
-let h = 20.
-
-let w = floor ((h *. sqrt 3. /. 2.) +. 0.5)
-
-(****)
-
-let _ = Random.self_init ()
-
-let create_cubes v = Array.init n (fun _ -> Array.init n (fun _ -> Array.make n v))
-
-let get a i j k = i < 0 || j < 0 || k < 0 || (i < n && j < n && k < n && a.(i).(j).(k))
-
-let update a =
-  let i = Random.int n in
-  let j = Random.int n in
-  let k = Random.int n in
-  if a.(i).(j).(k)
-  then
-    if not (get a (i + 1) j k || get a i (j + 1) k || get a i j (k + 1))
-    then (
-      a.(i).(j).(k) <- false;
-      true)
-    else false
-  else if get a (i - 1) j k && get a i (j - 1) k && get a i j (k - 1)
-  then (
-    a.(i).(j).(k) <- true;
-    true)
-  else false
-
-(****)
 
 module Html = Dom_html
 
-let top = Js.string "#a8a8f6"
+let width = 800.
+let height = 600.
+let river_height = 50.
+let hospital_height = 50.
+let creet_size = 10.
+let num_creets = 20
 
-let left = Js.string "#d9d9d9"
+type creature_state = Healthy | Sick | Berserk | Mean
+type position = { x : float; y : float }
+type creature = {
+  id : int;
+  pos : position;
+  vel : position;
+  state : creature_state;
+  size : float;
+  invulnerable : bool;
+}
 
-let right = Js.string "#767676"
+type game_state = {
+  creets : creature list;
+  mouse_down : bool;
+  dragged_creet : int option;
+  game_over : bool;
+}
 
-let on_cube c i j k f =
-  let x = float (i - k + n - 1) *. w in
-  let y = (float (n - 1 - j) *. h) +. (float (i + k) *. h /. 2.) in
-  c##save;
-  c##translate (Js.float x) (Js.float y);
-  f c;
-  c##restore
+let get_random_pos () =
+  {
+    x = Random.float (width -. creet_size) +. creet_size;
+    y = Random.float (height -. river_height -. hospital_height -. creet_size) +. river_height +. creet_size;
+  }
 
-let draw_top c =
-  c##.fillStyle := top;
-  c##beginPath;
-  c##moveTo (Js.float w) (Js.float 0.);
-  c##lineTo (Js.float (2. *. w)) (Js.float (h /. 2.));
-  c##lineTo (Js.float w) (Js.float h);
-  c##lineTo (Js.float 0.) (Js.float (h /. 2.));
-  c##fill
+let get_random_vel () =
+  let angle = Random.float (2. *. Float.pi) in
+  { x = cos angle; y = sin angle }
 
-let top_edges c =
-  c##beginPath;
-  c##moveTo (Js.float 0.) (Js.float (h /. 2.));
-  c##lineTo (Js.float w) (Js.float 0.);
-  c##lineTo (Js.float (2. *. w)) (Js.float (h /. 2.));
-  c##stroke
+let create_creet id =
+  {
+    id;
+    pos = get_random_pos ();
+    vel = get_random_vel ();
+    state = Healthy;
+    size = creet_size;
+    invulnerable = false;
+  }
 
-let draw_right c =
-  c##.fillStyle := right;
-  c##beginPath;
-  c##moveTo (Js.float w) (Js.float h);
-  c##lineTo (Js.float w) (Js.float (2. *. h));
-  c##lineTo (Js.float (2. *. w)) (Js.float (1.5 *. h));
-  c##lineTo (Js.float (2. *. w)) (Js.float (h /. 2.));
-  c##fill
+let init_game_state () =
+  let creets = List.init num_creets create_creet in
+  { creets; mouse_down = false; dragged_creet = None; game_over = false }
 
-let right_edges c =
-  c##beginPath;
-  c##moveTo (Js.float w) (Js.float (2. *. h));
-  c##lineTo (Js.float w) (Js.float h);
-  c##lineTo (Js.float (2. *. w)) (Js.float (h /. 2.));
-  c##stroke
+let draw_rect (ctx : Html.canvasRenderingContext2D Js.t) x y w h color =
+  ctx##.fillStyle := Js.string color;
+  ctx##fillRect (Js.float x) (Js.float y) (Js.float w) (Js.float h)
 
-let draw_left c =
-  c##.fillStyle := left;
-  c##beginPath;
-  c##moveTo (Js.float w) (Js.float h);
-  c##lineTo (Js.float w) (Js.float (2. *. h));
-  c##lineTo (Js.float 0.) (Js.float (1.5 *. h));
-  c##lineTo (Js.float 0.) (Js.float (h /. 2.));
-  c##fill
+let draw_river (ctx : Html.canvasRenderingContext2D Js.t) =
+  draw_rect ctx 0. 0. width river_height "#0000FF"
 
-let left_edges c =
-  c##beginPath;
-  c##moveTo (Js.float w) (Js.float h);
-  c##lineTo (Js.float 0.) (Js.float (h /. 2.));
-  c##lineTo (Js.float 0.) (Js.float (1.5 *. h));
-  c##stroke
+let draw_hospital (ctx : Html.canvasRenderingContext2D Js.t) =
+  draw_rect ctx 0. (height -. hospital_height) width hospital_height "#00FF00"
 
-let remaining_edges c =
-  c##beginPath;
-  c##moveTo (Js.float 0.) (Js.float (float n *. 1.5 *. h));
-  c##lineTo (Js.float (float n *. w)) (Js.float (float n *. 2. *. h));
-  c##lineTo (Js.float (float n *. 2. *. w)) (Js.float (float n *. 1.5 *. h));
-  c##lineTo (Js.float (float n *. 2. *. w)) (Js.float (float n *. 0.5 *. h));
-  c##stroke
+let get_creet_color = function
+  | Healthy -> "#000000"
+  | Sick -> "#FF0000"
+  | Berserk -> "#FFA500"
+  | Mean -> "#800080"
 
-let tile c a (top, right, left) =
-  for i = 0 to n - 1 do
-    let j = ref (n - 1) in
-    for k = 0 to n - 1 do
-      while !j >= 0 && not a.(i).(!j).(k) do
-        decr j
-      done;
-      on_cube c i !j k top
-    done
-  done;
-  for j = 0 to n - 1 do
-    let i = ref (n - 1) in
-    for k = 0 to n - 1 do
-      while !i >= 0 && not a.(!i).(j).(k) do
-        decr i
-      done;
-      on_cube c !i j k right
-    done
-  done;
-  for i = 0 to n - 1 do
-    let k = ref (n - 1) in
-    for j = 0 to n - 1 do
-      while !k >= 0 && not a.(i).(j).(!k) do
-        decr k
-      done;
-      on_cube c i j !k left
-    done
-  done
+let draw_creet (ctx : Html.canvasRenderingContext2D Js.t) creet =
+  ctx##beginPath;
+  ctx##arc (Js.float creet.pos.x) (Js.float creet.pos.y) (Js.float creet.size) (Js.float 0.) (Js.float (2. *. Float.pi)) Js._true;
+  ctx##.fillStyle := Js.string (get_creet_color creet.state);
+  ctx##fill
 
-let create_canvas () =
-  let d = Html.window##.document in
-  let c = Html.createCanvas d in
-  c##.width := (n * 2 * truncate w) + 1;
-  c##.height := (n * 2 * truncate h) + 1;
-  c
+let draw (ctx : Html.canvasRenderingContext2D Js.t) state =
+  ctx##clearRect (Js.float 0.) (Js.float 0.) (Js.float width) (Js.float height);
+  draw_rect ctx 0. 0. width height "#DDDDDD";
+  draw_river ctx;
+  draw_hospital ctx;
+  List.iter (draw_creet ctx) state.creets;
+  if state.game_over then (
+    ctx##.font := Js.string "50px Arial";
+    ctx##.fillStyle := Js.string "#000000";
+    ctx##fillText (Js.string "GAME OVER") (Js.float (width /. 2. -. 150.)) (Js.float (height /. 2.))
+  )
 
-let redraw ctx canvas a =
-  let c = canvas##getContext Html._2d_ in
-  c##setTransform
-    (Js.float 1.)
-    (Js.float 0.)
-    (Js.float 0.)
-    (Js.float 1.)
-    (Js.float 0.)
-    (Js.float 0.);
-  c##clearRect
-    (Js.float 0.)
-    (Js.float 0.)
-    (Js.float (float canvas##.width))
-    (Js.float (float canvas##.height));
-  c##setTransform
-    (Js.float 1.)
-    (Js.float 0.)
-    (Js.float 0.)
-    (Js.float 1.)
-    (Js.float 0.5)
-    (Js.float 0.5);
-  c##.globalCompositeOperation := Js.string "lighter";
-  tile c a (draw_top, draw_right, draw_left);
-  c##.globalCompositeOperation := Js.string "source-over";
-  tile c a (top_edges, right_edges, left_edges);
-  remaining_edges c;
-  ctx##drawImage_fromCanvas canvas (Js.float 0.) (Js.float 0.)
+let update_pos creet =
+  let new_pos = { x = creet.pos.x +. creet.vel.x; y = creet.pos.y +. creet.vel.y } in
+  let new_vel =
+    if new_pos.x < creet.size || new_pos.x > width -. creet.size then
+      { creet.vel with x = -.creet.vel.x }
+    else if new_pos.y < creet.size || new_pos.y > height -. creet.size then
+      { creet.vel with y = -.creet.vel.y }
+    else
+      creet.vel
+  in
+  { creet with pos = new_pos; vel = new_vel }
 
-let ( >>= ) = Lwt.bind
+let handle_river creet =
+  if creet.pos.y < river_height then
+    { creet with state = Sick }
+  else
+    creet
 
-let rec loop c c' a =
-  Lwt_js.sleep 0.2
-  >>= fun () ->
-  let need_redraw = ref false in
-  for _i = 0 to 99 do
-    need_redraw := update a || !need_redraw
-  done;
-  if !need_redraw then redraw c c' a;
-  loop c c' a
+let distance p1 p2 =
+  sqrt ((p1.x -. p2.x) ** 2. +. (p1.y -. p2.y) ** 2.)
+
+let handle_contamination creets =
+  let sick_creets = List.filter (fun c -> c.state = Sick || c.state = Berserk || c.state = Mean) creets in
+  List.map (fun creet ->
+    if creet.state = Healthy && not creet.invulnerable then
+      let is_contaminated = List.exists (fun sick_creet ->
+        distance creet.pos sick_creet.pos < creet.size +. sick_creet.size && Random.float 1. < 0.02
+      ) sick_creets in
+      if is_contaminated then { creet with state = Sick } else creet
+    else creet
+  ) creets
+
+let handle_sickness creet =
+  if creet.state = Sick then
+    let r = Random.float 1. in
+    if r < 0.1 then { creet with state = Berserk }
+    else if r < 0.2 then { creet with state = Mean }
+    else creet
+  else creet
+
+let update_creets creets =
+  let updated_creets = List.map (fun creet ->
+    let creet = update_pos creet in
+    let creet = handle_river creet in
+    handle_sickness creet
+  ) creets in
+  handle_contamination updated_creets
+
+let update state =
+  if state.game_over then state
+  else
+    let creets = match state.dragged_creet with
+      | Some id ->
+          let dragged, others = List.partition (fun c -> c.id = id) state.creets in
+          dragged @ (update_creets others)
+      | None -> update_creets state.creets
+    in
+    let healthy_creets = List.filter (fun c -> c.state = Healthy) creets in
+    let game_over = List.length healthy_creets = 0 in
+    { state with creets; game_over }
+
+let get_mouse_pos canvas event =
+  let rect = canvas##getBoundingClientRect in
+  let x = event##.clientX - int_of_float rect##.left in
+  let y = event##.clientY - int_of_float rect##.top in
+  { x = float x; y = float y }
+
+let handle_mouse_down state pos =
+  let creet_to_drag = List.find_opt (fun creet ->
+    distance creet.pos pos < creet.size
+  ) state.creets in
+  match creet_to_drag with
+  | Some creet ->
+      let creets = List.map (fun c -> if c.id = creet.id then { c with invulnerable = true } else c) state.creets in
+      { state with mouse_down = true; dragged_creet = Some creet.id; creets }
+  | None -> state
+
+let handle_mouse_up state =
+  let creets = List.map (fun c -> { c with invulnerable = false }) state.creets in
+  let creets = List.map (fun creet ->
+    if creet.state = Sick && creet.pos.y > height -. hospital_height then
+      { creet with state = Healthy }
+    else
+      creet
+  ) creets in
+  { state with mouse_down = false; dragged_creet = None; creets }
+
+let handle_mouse_move state pos =
+  if state.mouse_down then
+    match state.dragged_creet with
+    | Some id ->
+        let creets = List.map (fun creet ->
+          if creet.id = id then { creet with pos } else creet
+        ) state.creets in
+        { state with creets }
+    | None -> state
+  else
+    state
 
 let () =
-  let c = create_canvas () in
-  let c' = create_canvas () in
-  Dom.appendChild Html.window##.document##.body c;
-  let c = c##getContext Html._2d_ in
-  c##.globalCompositeOperation := Js.string "copy";
-  let a = create_cubes true in
-  redraw c c' a;
-  ignore (loop c c' a)
+  let canvas = Html.createCanvas Html.window##.document in
+  canvas##.width := int_of_float width;
+  canvas##.height := int_of_float height;
+  Dom.appendChild Html.window##.document##.body canvas;
+  let ctx = canvas##getContext Html._2d_ in
+  let state = ref (init_game_state ()) in
+  let rec loop _ =
+    state := update !state;
+    draw ctx !state;
+    Html.window##requestAnimationFrame (Js.wrap_callback loop) |> ignore
+  in
+  canvas##.onmousedown := Html.handler (fun event ->
+    let pos = get_mouse_pos canvas event in
+    state := handle_mouse_down !state pos;
+    Js._true
+  );
+  canvas##.onmouseup := Html.handler (fun _ ->
+    state := handle_mouse_up !state;
+    Js._true
+  );
+  canvas##.onmousemove := Html.handler (fun event ->
+    let pos = get_mouse_pos canvas event in
+    state := handle_mouse_move !state pos;
+    Js._true
+  );
+  loop 0.0
